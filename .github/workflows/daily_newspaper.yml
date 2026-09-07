@@ -2,9 +2,9 @@ name: Gunluk Matematik Gazetesi Otomasyonu
 
 on:
   schedule:
-    # Her sabah UTC ile 05:30'da (TSİ 08:30) çalışır
+    # Her sabah 8:30 çalış
     - cron: '30 5 * * *'
-  # GitHub arayüzünden manuel olarak "Run workflow" butonuyla tetikleyebilmek için:
+  
   workflow_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     - name: Python Ortamını Kur
       uses: actions/setup-python@v5
       with:
-        python-python-version: '3.10'
+        python-version: '3.10'
 
     - name: Kütüphaneleri Yükle
       run: |
