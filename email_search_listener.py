@@ -205,4 +205,4 @@ if __name__ == "__main__":
     print("🎧 Akıllı E-posta Dinleyici Başlatıldı...")
     while True:
         check_inbox_and_reply()
-        time.sleep(10)
+        time.sleep(60)
