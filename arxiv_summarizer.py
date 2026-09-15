@@ -1,6 +1,8 @@
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 import os
+import time
 from google import genai
 from dotenv import load_dotenv
 
@@ -12,9 +14,7 @@ client = genai.Client()
 def fetch_arxiv_papers(category="math.NT", max_results=2):
     """
     arXiv API'den belirtilen matematik kategorisindeki son makaleleri çeker.
-    Örn: 'math.NT' (Sayılar Teorisi), 'math.AG' (Cebirsel Geometri), 'math.CO' (Kombinatorik)
     """
-    # arXiv 503 hatalarını önlemek için HTTPS ve güvenli User-Agent başlığı eklendi
     url = f"https://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     
     req = urllib.request.Request(
@@ -22,8 +22,23 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     )
     
-    response = urllib.request.urlopen(req)
-    xml_data = response.read()
+    # arXiv rate-limit (429) durumunda otomatik bekleme ve yeniden deneme mantığı
+    xml_data = None
+    for attempt in range(3):
+        try:
+            time.sleep(2)  # arXiv sunucusunu yormamak için her istek öncesi 2 sn bekle
+            response = urllib.request.urlopen(req)
+            xml_data = response.read()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print(f"⏳ arXiv rate-limit uyarısı (429). {4 * (attempt + 1)} saniye bekleniyor...")
+                time.sleep(4 * (attempt + 1))
+            else:
+                raise e
+                
+    if not xml_data:
+        raise Exception("arXiv sunucusuna ulaşılamadı (İstek sınırı aşıldı).")
     
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -63,7 +78,7 @@ def summarize_paper(title, abstract):
     Özet: {abstract}
     """
     
-    response = client.models.generate_content(
+    response = client.models.generate-content(
         model='gemini-3.6-flash',
         contents=prompt,
     )
