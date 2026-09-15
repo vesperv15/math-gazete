@@ -6,9 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# API Anahtarın
-os.environ["GEMINI_API_KEY"] = "AQ.Ab8RN6IeyOK0INzoXEdVtkZUauKfJft8hHNH--iSEHcT2Dz6pw"
-
+# Gemini API İstemcisi
 client = genai.Client()
 
 def fetch_arxiv_papers(category="math.NT", max_results=2):
@@ -16,9 +14,15 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
     arXiv API'den belirtilen matematik kategorisindeki son makaleleri çeker.
     Örn: 'math.NT' (Sayılar Teorisi), 'math.AG' (Cebirsel Geometri), 'math.CO' (Kombinatorik)
     """
-    url = f"http://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
+    # arXiv 503 hatalarını önlemek için HTTPS ve güvenli User-Agent başlığı eklendi
+    url = f"https://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     
-    response = urllib.request.urlopen(url)
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    )
+    
+    response = urllib.request.urlopen(req)
     xml_data = response.read()
     
     root = ET.fromstring(xml_data)
