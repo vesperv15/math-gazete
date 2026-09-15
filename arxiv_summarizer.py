@@ -22,23 +22,25 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
         headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     )
     
-    # arXiv rate-limit (429) durumunda otomatik bekleme ve yeniden deneme mantığı
+    # arXiv sunucu hataları (429 ve 503 vb.) için otomatik bekleme ve yeniden deneme mantığı
     xml_data = None
-    for attempt in range(3):
+    for attempt in range(4):  # Şansı artırmak için deneme sayısını 4 yaptık
         try:
-            time.sleep(2)  # arXiv sunucusunu yormamak için her istek öncesi 2 sn bekle
+            time.sleep(3)  # arXiv'i yormamak için her istek öncesi garanti 3 sn bekle
             response = urllib.request.urlopen(req)
             xml_data = response.read()
             break
         except urllib.error.HTTPError as e:
-            if e.code == 429:
-                print(f"⏳ arXiv rate-limit uyarısı (429). {4 * (attempt + 1)} saniye bekleniyor...")
-                time.sleep(4 * (attempt + 1))
+            # Hem rate-limit (429) hem de sunucu çökmelerini (502, 503, 504) yakala
+            if e.code in [429, 502, 503, 504]:
+                bekleme_suresi = 5 * (attempt + 1)
+                print(f"⏳ arXiv sunucusu meşgul (Hata {e.code}). {bekleme_suresi} saniye bekleniyor...")
+                time.sleep(bekleme_suresi)
             else:
                 raise e
                 
     if not xml_data:
-        raise Exception("arXiv sunucusuna ulaşılamadı (İstek sınırı aşıldı).")
+        raise Exception("arXiv sunucusuna ulaşılamadı (Sunucu yanıt vermiyor).")
     
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
