@@ -78,8 +78,8 @@ def summarize_paper(title, abstract):
     Özet: {abstract}
     """
     
-    response = client.models.generate-content(
-        model='gemini-3.6-flash',
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
         contents=prompt,
     )
     
