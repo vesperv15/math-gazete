@@ -10,6 +10,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from google import genai
 import urllib.request
+import urllib.error
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -35,27 +36,53 @@ def start_health_server():
 # ---------------------------------------------
 
 def extract_search_query_with_gemini(raw_email_body):
+    # Prompt, yapay zekanın sadece yeni mesaja odaklanması için güçlendirildi
     prompt = f"""
-    Aşağıda bir akademisyenin gelen bir e-postaya verdiği yanıt metni yer alıyor.
-    Bu metindeki e-posta imzalarını, selamlaşmaları ve eski ileti alıntılarını temizle.
-    Sadece kullanıcının aramak istediği matematiksel konuyu/anahtar kelimeyi İngilizce olarak döndür.
-    Eğer herhangi bir konu yoksa sadece 'INVALID' yaz.
+    Sen çok zeki bir yapay zeka asistanısın. Görevin, akademisyenin attığı e-postadan HANGİ KONUYU aratmak istediğini bulmak.
     
-    E-Posta Metni:
+    DİKKAT ETMEN GEREKEN ÇOK ÖNEMLİ KURALLAR:
+    1. Bu bir 'Yanıt (Reply)' e-postası olabilir. Kullanıcının asıl isteği en üstte yazar. Alt kısımdaki uzun alıntıları (geçmiş bülten haberlerini, 'On ... wrote:' kısımlarını) KESİNLİKLE YOK SAY!
+    2. Sadece kullanıcının en üstteki yeni mesajını oku ve istediği spesifik matematiksel/bilimsel konuyu İNGİLİZCE bir arama terimine (keyword) dönüştür. (Örn: 'cryptography', 'algebraic geometry', 'fluid dynamics').
+    3. Ekrana SADECE bu İngilizce terimi yaz. Nokta, tırnak işareti veya açıklama KULLANMA.
+    4. Eğer mesajda bir araştırma isteği yoksa (sadece teşekkür ediyorsa vs.) 'INVALID' yaz.
+    5. Eğer mesaj 'iptal', 'çıkmak istiyorum', 'unsubscribe' gibi abonelik sonlandırma içeriyorsa 'IPTAL' yaz.
+    
+    Gelen E-Posta Metni:
     {raw_email_body}
     """
     response = client.models.generate_content(
         model='gemini-3.6-flash',
         contents=prompt,
     )
-    return response.text.strip()
+    return response.text.strip().replace("'", "").replace('"', "")
 
 def search_arxiv_by_keyword(query, max_results=3):
     encoded_query = urllib.parse.quote(query)
-    url = f"http://export.arxiv.org/api/query?search_query=all:{encoded_query}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
+    # HTTP yerine HTTPS yapıldı ve hata koruması eklendi
+    url = f"https://export.arxiv.org/api/query?search_query=all:{encoded_query}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     
-    response = urllib.request.urlopen(url)
-    xml_data = response.read()
+    req = urllib.request.Request(
+        url, 
+        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    )
+    
+    xml_data = None
+    for attempt in range(4):
+        try:
+            time.sleep(2)
+            response = urllib.request.urlopen(req)
+            xml_data = response.read()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in [429, 502, 503, 504]:
+                print(f"⏳ arXiv meşgul (Hata {e.code}). Bekleniyor...")
+                time.sleep(4 * (attempt + 1))
+            else:
+                raise e
+                
+    if not xml_data:
+        return []
+    
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
     
@@ -64,8 +91,10 @@ def search_arxiv_by_keyword(query, max_results=3):
         title = entry.find('atom:title', ns).text.strip().replace('\n', ' ')
         summary = entry.find('atom:summary', ns).text.strip().replace('\n', ' ')
         link = entry.find('atom:id', ns).text.strip()
-        authors = [author.find('atom:name', ns).text for author in entry.findall('atom:author', ns)]
         
+        authors_elements = entry.findall('atom:author', ns)
+        authors = [author.find('atom:name', ns).text for author in authors_elements] if authors_elements else ["Bilinmiyor"]
+            
         papers.append({
             "title": title,
             "abstract": summary,
@@ -81,7 +110,8 @@ def summarize_paper(title, abstract):
     
     Kurallar:
     - Tam olarak 2 cümle olsun.
-    - TEMİZ METİN kuralı: Kesinlikle '$' sembolü veya LaTeX kodları kullanma.
+    - İlk cümle ne yapıldığını, ikinci cümle yeniliği anlatsın.
+    - TEMİZ METİN kuralı: Kesinlikle '$' sembolü veya LaTeX kodları (\mathrm, \mathbb vb.) KULLANMA.
     
     Başlık: {title}
     Özet: {abstract}
@@ -111,7 +141,7 @@ def build_search_response_html(query, papers_with_summaries):
     <body style="font-family: sans-serif; background-color: #f8fafc; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2b6cb0;">🔍 '{query}' Konulu Arama Sonuçları</h2>
-            <p style="color: #4a5568; font-size: 14px;">arXiv üzerinde bulduğum en güncel 3 makale ve özetleri:</p>
+            <p style="color: #4a5568; font-size: 14px;">arXiv üzerinde bulduğum en güncel makaleler ve özetleri:</p>
             <hr style="border: none; border-top: 1px solid #e2e8f0; margin-bottom: 20px;">
             {cards_html}
         </div>
@@ -143,10 +173,10 @@ def check_inbox_and_reply():
         mail.select("inbox")
 
         status, messages = mail.search(None, 'UNSEEN')
-        email_ids = messages[0].split()
-
-        if not email_ids:
+        if not messages[0]:
             return
+            
+        email_ids = messages[0].split()
 
         for e_id in email_ids:
             status, msg_data = mail.fetch(e_id, '(RFC822)')
@@ -159,10 +189,10 @@ def check_inbox_and_reply():
                     if msg.is_multipart():
                         for part in msg.walk():
                             if part.get_content_type() == "text/plain":
-                                raw_body = part.get_payload(decode=True).decode()
+                                raw_body = part.get_payload(decode=True).decode(errors='replace')
                                 break
                     else:
-                        raw_body = msg.get_payload(decode=True).decode()
+                        raw_body = msg.get_payload(decode=True).decode(errors='replace')
 
                     search_query = extract_search_query_with_gemini(raw_body)
                     
@@ -180,6 +210,10 @@ def check_inbox_and_reply():
                         print(f"\n📩 Yanıt Yakalandı! Gönderen: {sender_email} | Temizlenen Konu: '{search_query}'")
                         raw_papers = search_arxiv_by_keyword(search_query, max_results=3)
                         
+                        if not raw_papers:
+                            send_reply_email(sender_email, f"🔍 Arama Sonucu: {search_query}", "<p>Maalesef bu konuda güncel bir makale bulunamadı.</p>")
+                            continue
+                            
                         papers_with_summaries = []
                         for paper in raw_papers:
                             summary = summarize_paper(paper['title'], paper['abstract'])
@@ -199,7 +233,6 @@ def check_inbox_and_reply():
         print(f"⚠️ Hata: {str(e)}")
 
 if __name__ == "__main__":
-    # Arka planda HTTP sunucusunu başlatır
     threading.Thread(target=start_health_server, daemon=True).start()
     
     print("🎧 Akıllı E-posta Dinleyici Başlatıldı...")
