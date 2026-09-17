@@ -6,12 +6,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import time
 import threading
+import subprocess
+import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from google import genai
-import urllib.request
-import urllib.error
-import urllib.parse
 import xml.etree.ElementTree as ET
 
 load_dotenv()
@@ -57,44 +56,51 @@ def extract_search_query_with_gemini(raw_email_body):
     return response.text.strip().replace("'", "").replace('"', "")
 
 def search_arxiv_by_keyword(query, max_results=3):
+    """
+    NOT: urllib.request bu ortamda arXiv tarafından (muhtemelen TLS/HTTP
+    imza seviyesinde bir bot-filtresiyle) 406 ile reddediliyordu; curl ise
+    aynı istekte sorunsuz çalıştığı için burada subprocess ile curl kullanılıyor.
+    """
     encoded_query = urllib.parse.quote(query)
-    # HTTP yerine HTTPS yapıldı ve hata koruması eklendi
     url = f"https://export.arxiv.org/api/query?search_query=all:{encoded_query}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
-    
-    req = urllib.request.Request(
-        url, 
-        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    )
-    
+
     xml_data = None
+    last_error = None
     for attempt in range(4):
         try:
             time.sleep(2)
-            response = urllib.request.urlopen(req)
-            xml_data = response.read()
+            result = subprocess.run(
+                [
+                    'curl', '-s', '-f', '--max-time', '20',
+                    '-H', 'User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)',
+                    url
+                ],
+                capture_output=True,
+                check=True,
+            )
+            xml_data = result.stdout
             break
-        except urllib.error.HTTPError as e:
-            if e.code in [429, 502, 503, 504]:
-                print(f"⏳ arXiv meşgul (Hata {e.code}). Bekleniyor...")
-                time.sleep(4 * (attempt + 1))
-            else:
-                raise e
-                
+        except subprocess.CalledProcessError as e:
+            last_error = f"curl exit code {e.returncode}, stderr: {e.stderr.decode('utf-8', errors='replace')[:300]}"
+            print(f"⏳ arXiv isteği başarısız ({last_error}). {4 * (attempt + 1)} saniye bekleniyor...")
+            time.sleep(4 * (attempt + 1))
+
     if not xml_data:
+        print(f"⚠️ arXiv'e ulaşılamadı, arama boş döndü. Son hata: {last_error}")
         return []
-    
+
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
-    
+
     papers = []
     for entry in root.findall('atom:entry', ns):
         title = entry.find('atom:title', ns).text.strip().replace('\n', ' ')
         summary = entry.find('atom:summary', ns).text.strip().replace('\n', ' ')
         link = entry.find('atom:id', ns).text.strip()
-        
+
         authors_elements = entry.findall('atom:author', ns)
         authors = [author.find('atom:name', ns).text for author in authors_elements] if authors_elements else ["Bilinmiyor"]
-            
+
         papers.append({
             "title": title,
             "abstract": summary,
