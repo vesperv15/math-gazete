@@ -19,7 +19,7 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
     
     req = urllib.request.Request(
         url, 
-        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        headers={'User-Agent': 'AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)'}
     )
     
     # arXiv sunucu hataları (429 ve 503 vb.) için otomatik bekleme ve yeniden deneme mantığı
