@@ -1,5 +1,4 @@
-import urllib.request
-import urllib.error
+import subprocess
 import xml.etree.ElementTree as ET
 import os
 import time
@@ -14,45 +13,36 @@ client = genai.Client()
 def fetch_arxiv_papers(category="math.NT", max_results=2):
     """
     arXiv API'den belirtilen matematik kategorisindeki son makaleleri çeker.
+    NOT: urllib.request bu ortamda arXiv tarafından (muhtemelen TLS/HTTP
+    imza seviyesinde bir bot-filtresiyle) 406 ile reddediliyordu; curl ise
+    aynı istekte sorunsuz çalıştığı için burada subprocess ile curl kullanılıyor.
     """
     url = f"https://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
 
-    req = urllib.request.Request(
-        url,
-        headers={
-            'User-Agent': 'AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)',
-            'Accept': 'application/atom+xml,application/xml;q=0.9,*/*;q=0.8',
-        }
-    )
-
-    # arXiv sunucu hataları (406, 429, 502, 503 vb.) için otomatik bekleme ve yeniden deneme mantığı
     xml_data = None
-    last_error_body = None
+    last_error = None
     for attempt in range(4):  # Şansı artırmak için deneme sayısını 4 yaptık
         try:
             time.sleep(3)  # arXiv'i yormamak için her istek öncesi garanti 3 sn bekle
-            response = urllib.request.urlopen(req)
-            xml_data = response.read()
+            result = subprocess.run(
+                [
+                    'curl', '-s', '-f', '--max-time', '20',
+                    '-H', 'User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)',
+                    url
+                ],
+                capture_output=True,
+                check=True,
+            )
+            xml_data = result.stdout
             break
-        except urllib.error.HTTPError as e:
-            # Sunucunun gerçekte ne döndürdüğünü görmek için hata gövdesini oku
-            try:
-                last_error_body = e.read().decode('utf-8', errors='replace')[:500]
-            except Exception:
-                last_error_body = "(gövde okunamadı)"
-
-            # Hem rate-limit/reddetme (406, 429) hem de sunucu çökmelerini (502, 503, 504) yakala
-            if e.code in [406, 429, 502, 503, 504]:
-                bekleme_suresi = 5 * (attempt + 1)
-                print(f"⏳ arXiv sunucusu meşgul/reddetti (Hata {e.code}). Gövde: {last_error_body}")
-                print(f"{bekleme_suresi} saniye bekleniyor...")
-                time.sleep(bekleme_suresi)
-            else:
-                print(f"Beklenmeyen hata gövdesi: {last_error_body}")
-                raise e
+        except subprocess.CalledProcessError as e:
+            last_error = f"curl exit code {e.returncode}, stderr: {e.stderr.decode('utf-8', errors='replace')[:300]}"
+            bekleme_suresi = 5 * (attempt + 1)
+            print(f"⏳ arXiv isteği başarısız ({last_error}). {bekleme_suresi} saniye bekleniyor...")
+            time.sleep(bekleme_suresi)
 
     if not xml_data:
-        raise Exception(f"arXiv sunucusuna ulaşılamadı (Sunucu yanıt vermiyor). Son hata gövdesi: {last_error_body}")
+        raise Exception(f"arXiv sunucusuna ulaşılamadı. Son hata: {last_error}")
 
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
