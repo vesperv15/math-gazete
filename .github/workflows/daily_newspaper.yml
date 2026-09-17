@@ -25,10 +25,28 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: arXiv bağlantısını debug et
+    - name: arXiv bağlantısını debug et (A/B/C testi)
       run: |
-        curl -i "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1" \
+        echo "TEST A (User-Agent'ta 'Bot' var + Accept header var - Python'daki mevcut hali):"
+        curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+          "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1" \
+          -H "User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)" \
+          -H "Accept: application/atom+xml,application/xml;q=0.9,*/*;q=0.8"
+
+        echo "TEST B ('Bot' kelimesi cikarildi, Accept header hala var):"
+        curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+          "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1" \
+          -H "User-Agent: AkademikGazeteHaber/1.0 (mailto:akademikgazete7@gmail.com)" \
+          -H "Accept: application/atom+xml,application/xml;q=0.9,*/*;q=0.8"
+
+        echo "TEST C ('Bot' kelimesi var, Accept header YOK):"
+        curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+          "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1" \
           -H "User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)"
+
+        echo "TEST D (hicbir ozel header yok - curl varsayilani, kontrol amacli):"
+        curl -s -o /dev/null -w "HTTP %{http_code}\n" \
+          "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1"
 
     - name: Gazete Kodunu Çalıştır
       env:
