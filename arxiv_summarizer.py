@@ -82,12 +82,21 @@ def summarize_paper(title, abstract):
     Özet: {abstract}
     """
 
-    response = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=prompt,
-    )
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model='gemini-3.6-flash',
+                contents=prompt,
+            )
+            return response.text.strip()
+        except Exception as e:
+            last_error = e
+            bekleme_suresi = 15 * (attempt + 1)
+            print(f"⏳ Gemini API meşgul/hata verdi ({e}). {bekleme_suresi} saniye bekleniyor...")
+            time.sleep(bekleme_suresi)
 
-    return response.text.strip()
+    raise last_error
 
 if __name__ == "__main__":
     print("arXiv'den son Sayılar Teorisi (math.NT) makaleleri çekiliyor ve özetleniyor...\n")
