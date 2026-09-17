@@ -25,6 +25,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: arXiv bağlantısını debug et
+      run: |
+        curl -i "https://export.arxiv.org/api/query?search_query=cat:math.NT&max_results=1" \
+          -H "User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)"
+
     - name: Gazete Kodunu Çalıştır
       env:
         GMAIL_USER: ${{ secrets.GMAIL_USER }}
