@@ -1,4 +1,4 @@
-import subprocess
+import requests
 import xml.etree.ElementTree as ET
 import os
 import time
@@ -13,36 +13,39 @@ client = genai.Client()
 def fetch_arxiv_papers(category="math.NT", max_results=2):
     """
     arXiv API'den belirtilen matematik kategorisindeki son makaleleri çeker.
-    NOT: urllib.request bu ortamda arXiv tarafından (muhtemelen TLS/HTTP
-    imza seviyesinde bir bot-filtresiyle) 406 ile reddediliyordu; curl ise
-    aynı istekte sorunsuz çalıştığı için burada subprocess ile curl kullanılıyor.
+    subprocess/curl yerine doğrudan güvenli Python requests katmanı kullanılır.
     """
     url = f"https://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/atom+xml, application/xml, */*'
+    }
 
     xml_data = None
     last_error = None
-    for attempt in range(4):  # Şansı artırmak için deneme sayısını 4 yaptık
+    
+    for attempt in range(4):
         try:
-            time.sleep(3)  # arXiv'i yormamak için her istek öncesi garanti 3 sn bekle
-            result = subprocess.run(
-                [
-                    'curl', '-s', '-f', '--max-time', '20',
-                    '-H', 'User-Agent: AkademikGazeteBot/1.0 (mailto:akademikgazete7@gmail.com)',
-                    url
-                ],
-                capture_output=True,
-                check=True,
-            )
-            xml_data = result.stdout
-            break
-        except subprocess.CalledProcessError as e:
-            last_error = f"curl exit code {e.returncode}, stderr: {e.stderr.decode('utf-8', errors='replace')[:300]}"
-            bekleme_suresi = 5 * (attempt + 1)
-            print(f"⏳ arXiv isteği başarısız ({last_error}). {bekleme_suresi} saniye bekleniyor...")
-            time.sleep(bekleme_suresi)
+            time.sleep(2)  # arXiv sunucularını yormamak için garanti bekleme
+            response = requests.get(url, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                xml_data = response.content
+                break
+            else:
+                last_error = f"HTTP {response.status_code}"
+                print(f"⏳ arXiv yanıt vermedi ({last_error}). Yeniden deneniyor...")
+        except Exception as e:
+            last_error = str(e)
+            print(f"⏳ arXiv bağlantı denemesi {attempt + 1} başarısız: {e}")
+
+        bekleme_suresi = 5 * (attempt + 1)
+        time.sleep(bekleme_suresi)
 
     if not xml_data:
-        raise Exception(f"arXiv sunucusuna ulaşılamadı. Son hata: {last_error}")
+        print(f"⚠️ arXiv'den '{category}' kategorisi için makale çekilemedi. Son Hata: {last_error}")
+        return []
 
     root = ET.fromstring(xml_data)
     ns = {'atom': 'http://www.w3.org/2005/Atom'}
@@ -65,7 +68,7 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
 
 def summarize_paper(title, abstract):
     """
-    Makale başlığı ve özetini Gemini API ile gazete formatına dönüştürür.
+    Makale başlığı ve özeti Gemini API ile gazete formatına dönüştürür.
     """
     prompt = f"""
     Aşağıda matematik alanında yazılmış bir makalenin başlığı ve özeti yer alıyor.
@@ -75,7 +78,7 @@ def summarize_paper(title, abstract):
     - Tam olarak 2 cümle olsun.
     - İlk cümle çalışmanın ne yaptığını/neye odaklandığını söylesin.
     - İkinci cümle elde edilen temel matematiksel sonucu veya yeniliği vurgulasın.
-    - TEMİZ METİN kuralı: Kesinlikle '$' sembolü veya LaTeX kodları (\mathrm, \mathbb vb.) KULLANMA. 
+    - TEMİZ METİN kuralı: Kesinlikle '$' sembolü veya LaTeX kodları (\\mathrm, \\mathbb vb.) KULLANMA. 
     Matematiksel ifadeleri düz metin ve standart karakterlerle yaz (Örn: '$\\mathrm{{GL}}_2(\\mathbb{{Q}})$' yerine 'GL_2(Q)', '$L$' yerine 'L').
 
     Başlık: {title}
