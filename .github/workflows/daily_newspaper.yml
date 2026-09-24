@@ -3,7 +3,7 @@ name: Gunluk Matematik Gazetesi Otomasyonu
 on:
   schedule:
     # Her sabah 8:30 çalış
-    - cron: '30 5 * * *'
+    - cron: '17 5 * * *'
   
   workflow_dispatch:
 
