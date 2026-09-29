@@ -27,7 +27,7 @@ def fetch_arxiv_papers(category="math.NT", max_results=2):
     
     for attempt in range(4):
         try:
-            time.sleep(2)  # arXiv sunucularını yormamak için garanti bekleme
+            time.sleep(2)  # arXiv sunucularını kitlememek için bekleme
             response = requests.get(url, headers=headers, timeout=15)
             
             if response.status_code == 200:
