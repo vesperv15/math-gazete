@@ -21,7 +21,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 client = genai.Client()
 
-# --- RENDER İÇİN SAĞLIK KONTROLÜ SUNUCUSU ---
+# render için canlı da mı kontrol sunucusu
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -32,10 +32,9 @@ def start_health_server():
     port = int(os.getenv("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
-# ---------------------------------------------
 
 def extract_search_query_with_gemini(raw_email_body):
-    # Prompt, yapay zekanın sadece yeni mesaja odaklanması için güçlendirildi
+    # Prompt ajanın sadece yeni mesjalara odaklanması için guncellendi.
     prompt = f"""
     Sen çok zeki bir yapay zeka asistanısın. Görevin, akademisyenin attığı e-postadan HANGİ KONUYU aratmak istediğini bulmak.
     
